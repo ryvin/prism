@@ -16,18 +16,18 @@ class ServeConfig(unittest.TestCase):
                          ('127.0.0.1', 0, False))
 
     def test_port_in_the_environment_turns_served_mode_on(self):
-        cfg = gui.serve_config({'PRISM_HOST': '0.0.0.0', 'PRISM_PORT': '8096'})
+        cfg = gui.serve_config({'PRISM_HOST': '0.0.0.0', 'PRISM_PORT': '8196'})
         self.assertEqual((cfg['host'], cfg['port'], cfg['served']),
-                         ('0.0.0.0', 8096, True))
+                         ('0.0.0.0', 8196, True))
 
     def test_the_printed_address_uses_the_port_published_on_the_host(self):
-        cfg = gui.serve_config({'PRISM_PORT': '8096', 'PRISM_PUBLIC_PORT': '9001'})
-        self.assertEqual((cfg['port'], cfg['public_port']), (8096, 9001))
-        self.assertEqual(gui.serve_config({'PRISM_PORT': '8096'})['public_port'], 8096)
+        cfg = gui.serve_config({'PRISM_PORT': '8196', 'PRISM_PUBLIC_PORT': '9001'})
+        self.assertEqual((cfg['port'], cfg['public_port']), (8196, 9001))
+        self.assertEqual(gui.serve_config({'PRISM_PORT': '8196'})['public_port'], 8196)
 
     def test_a_port_that_is_not_a_port_is_refused(self):
         with self.assertRaises(SystemExit):
-            gui.serve_config({'PRISM_PORT': '8096', 'PRISM_PUBLIC_PORT': 'x'})
+            gui.serve_config({'PRISM_PORT': '8196', 'PRISM_PUBLIC_PORT': 'x'})
         for bad in ('http', '0', '70000', '-1'):
             with self.assertRaises(SystemExit):
                 gui.serve_config({'PRISM_PORT': bad})

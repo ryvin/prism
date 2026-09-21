@@ -8,12 +8,12 @@ COPY engine/ /app/engine/
 
 ENV PYTHONUNBUFFERED=1 \
     PRISM_HOST=0.0.0.0 \
-    PRISM_PORT=8096 \
+    PRISM_PORT=8196 \
     PRISM_WORK=/work
 
 USER prism
 VOLUME /work
-EXPOSE 8096
+EXPOSE 8196
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s \
   CMD python3 -c "import socket,os; socket.create_connection(('127.0.0.1', int(os.environ['PRISM_PORT'])), 3)"

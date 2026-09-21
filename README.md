@@ -235,13 +235,13 @@ what is in that folder instead of opening a dialog, since a container has no
 desktop to show one on. Converted files land back in `./work`, and anything
 Prism wrote there earlier is left out of the list.
 
-The window is published on `127.0.0.1:8096` only, because it can read and write
+The window is published on `127.0.0.1:8196` only, because it can read and write
 the shared folder. Everything is set through `.env`:
 
 | Variable | Default | What it does |
 |---|---|---|
 | `PRISM_WORK_DIR` | `./work` | Folder shared with the container. Forward slashes on Docker Desktop. |
-| `PRISM_HOST_PORT` | `8096` | Port on your machine |
+| `PRISM_HOST_PORT` | `8196` | Port on your machine |
 | `PRISM_TOKEN` | random each start | Pin it for an address that survives a restart |
 | `PRISM_UID` / `PRISM_GID` | `1000` | Owner of the files it writes |
 

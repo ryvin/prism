@@ -13,10 +13,10 @@ services:
       # set PRISM_TOKEN in .env for an address that survives a restart
       PRISM_TOKEN: "${PRISM_TOKEN:-}"
       # so the address in the logs is the one that opens
-      PRISM_PUBLIC_PORT: "${PRISM_HOST_PORT:-8096}"
+      PRISM_PUBLIC_PORT: "${PRISM_HOST_PORT:-8196}"
     ports:
       # loopback only: the window can read and write the shared folder
-      - "127.0.0.1:${PRISM_HOST_PORT:-8096}:8096"
+      - "127.0.0.1:${PRISM_HOST_PORT:-8196}:8196"
     volumes:
       # forward slashes on Docker Desktop, C:/models never C:\models
       - "${PRISM_WORK_DIR:-./work}:/work"
