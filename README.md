@@ -307,6 +307,33 @@ In a release build the command is `Prism.exe --engine ...` on Windows and
 because `osacompile` and `codesign` are macOS tools. The engine also runs on its
 own: `python3 engine/optimise3mf.py --interactive yourfile.3mf`.
 
+## Run in a container
+
+    mkdir -p work                    # yours, before Docker makes it root's
+    docker compose up -d --build
+    docker compose logs prism        # prints the address, token included
+
+Put `.3mf` files in `./work`, open the address, and **Choose files** lists
+what is in that folder instead of opening a dialog, since a container has no
+desktop to show one on. Converted files land back in `./work`, and anything
+Prism wrote there earlier is left out of the list.
+
+The window is published on `127.0.0.1:8196` only, because it can read and write
+the shared folder. Everything is set through `.env`:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PRISM_WORK_DIR` | `./work` | Folder shared with the container. Forward slashes on Docker Desktop. |
+| `PRISM_HOST_PORT` | `8196` | Port on your machine |
+| `PRISM_TOKEN` | random each start | Pin it for an address that survives a restart |
+| `PRISM_UID` / `PRISM_GID` | `1000` | Owner of the files it writes |
+
+The engine runs the same way, with no window:
+
+    docker compose run --rm prism engine/optimise3mf.py --printer u1 /work/file.3mf
+
+Tests are standard library too: `python3 -m unittest discover tests`.
+
 ## Rebuilding the printer data
 
 `engine/data/` is baked from the vendor profiles inside installed slicers. After

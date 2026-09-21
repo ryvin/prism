@@ -20,7 +20,8 @@ HERE = getattr(sys, '_MEIPASS', None) or os.path.dirname(os.path.abspath(__file_
 ENGINE = os.path.join(HERE, 'optimise3mf.py')
 PY = sys.executable or 'python3'
 ENGINE_CMD = [sys.executable, '--engine'] if FROZEN else [PY, ENGINE]
-TOKEN = secrets.token_urlsafe(16)
+# PRISM_TOKEN pins it so a served window keeps one bookmarkable address
+TOKEN = os.environ.get('PRISM_TOKEN') or secrets.token_urlsafe(16)
 # Set this to your own page to show a support link in the window and the README.
 # Left as the placeholder it renders nothing, so a wrong link can never ship.
 SUPPORT_URL = 'https://buymeacoffee.com/prismprints'
@@ -60,8 +61,47 @@ LINUX_PICKERS = [
 ]
 
 
+def serve_config(env):
+    """Where to listen. A desktop gets loopback on a free port. PRISM_PORT means
+    the window is being served, from a container say: a fixed port, no browser
+    to open, no native dialog to show, and nobody to go idle on."""
+    raw = env.get('PRISM_PORT', '')
+    if not raw:
+        return {'host': '127.0.0.1', 'port': 0, 'public_port': 0,
+                'served': False, 'work': ''}
+    # the port published on the host can differ from the one listened on, and
+    # the address printed at start has to be the one that actually opens
+    public = env.get('PRISM_PUBLIC_PORT') or raw
+    for name, value in (('PRISM_PORT', raw), ('PRISM_PUBLIC_PORT', public)):
+        if not value.isdigit() or not 0 < int(value) < 65536:
+            sys.exit('%s must be a port number from 1 to 65535, not %r'
+                     % (name, value))
+    return {'host': env.get('PRISM_HOST', '127.0.0.1'), 'port': int(raw),
+            'public_port': int(public), 'served': True,
+            'work': env.get('PRISM_WORK', '/work')}
+
+
+def work_files(folder, keys):
+    """Every source .3mf in the served folder. What Prism wrote there earlier,
+    '<name> - KEY.3mf' or '<name> - KEY-FS.3mf', is left out so a second run
+    does not convert its own output."""
+    written = re.compile(r' - (%s)(-FS)?\.3mf$'
+                         % '|'.join(re.escape(k.upper()) for k in keys))
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return []
+    return [os.path.join(folder, n) for n in names
+            if n.lower().endswith('.3mf') and not written.search(n)]
+
+
+CONFIG = serve_config(os.environ)
+
+
 def pick_files():
     """Native multi-select file dialog. Returns absolute paths."""
+    if CONFIG['served']:
+        return work_files(CONFIG['work'], [p['key'] for p in printers()])
     if sys.platform.startswith('linux'):
         for cmd in LINUX_PICKERS:
             if not shutil.which(cmd[0]):
@@ -754,7 +794,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == '/api/pick':
                 picked = pick_files()
                 note = ''
-                if not picked and sys.platform.startswith('linux') and \
+                if not picked and CONFIG['served']:
+                    note = ('No .3mf files in the shared folder. Put them in '
+                            'the folder mounted at %s and choose again.'
+                            % CONFIG['work'])
+                elif not picked and sys.platform.startswith('linux') and \
                         not any(shutil.which(c[0]) for c in LINUX_PICKERS):
                     note = ('No file dialog found. Install zenity, kdialog or '
                             'yad, or pass files on the command line.')
@@ -858,20 +902,26 @@ def main():
                 ctypes.windll.kernel32.GetConsoleWindow(), 0)
         except Exception:
             pass
-    s = socket.socket()
-    s.bind(('127.0.0.1', 0))
-    port = s.getsockname()[1]
-    s.close()
-    srv = http.server.ThreadingHTTPServer(('127.0.0.1', port), Handler)
+    port = CONFIG['port']
+    if not port:
+        s = socket.socket()
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+        s.close()
+    srv = http.server.ThreadingHTTPServer((CONFIG['host'], port), Handler)
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    url = 'http://127.0.0.1:%d/?t=%s' % (port, TOKEN)
+    url = 'http://127.0.0.1:%d/?t=%s' % (CONFIG['public_port'] or port, TOKEN)
     print('Prism running at', url, flush=True)
-    # CI needs to drive the window without a browser appearing on the runner.
-    if not os.environ.get('PRISM_NO_BROWSER'):
+    # CI needs to drive the window without a browser appearing on the runner,
+    # and a served window has no desktop to open one on.
+    if not CONFIG['served'] and not os.environ.get('PRISM_NO_BROWSER'):
         webbrowser.open(url)
     try:
         while True:
+            if CONFIG['served']:
+                time.sleep(2)  # closing the tab is not quitting the app
+                continue
             now = time.time()
             if _leaving[0] and now > _leaving[0]:
                 break          # the tab was closed and did not come back
