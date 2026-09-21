@@ -229,10 +229,24 @@ own: `python3 engine/optimise3mf.py --interactive yourfile.3mf`.
     mkdir -p work                    # yours, before Docker makes it root's
     docker compose up -d --build
 
-Put `.3mf` files in `./work`, open <http://127.0.0.1:8196/>, and **Choose 3MF files** lists
-what is in that folder instead of opening a dialog, since a container has no
-desktop to show one on. Converted files land back in `./work`, and anything
-Prism wrote there earlier is left out of the list.
+Open <http://127.0.0.1:8196/>. A container has no desktop to put a file dialog
+on, so **Choose 3MF files** opens a folder browser in the page instead. It
+starts at the shared folder, `./work` unless you say otherwise, and cannot leave
+it. Converted files land next to their originals, and anything Prism wrote
+earlier is left out of the list.
+
+A container sees only what you share with it. To browse your own model folders
+rather than copy files into `./work`, mount each one under `/work` in a
+`docker-compose.override.yml`, which git ignores:
+
+    services:
+      prism:
+        volumes:
+          - "C:/Users/you/Downloads:/work/Downloads"
+          - "D:/Models:/work/Models"
+
+Share the folders your models are in rather than a whole drive: the window can
+write wherever it can read.
 
 The window is published on `127.0.0.1:8196` only, because it can read and write
 the shared folder. The plain address sends you on to one carrying the access

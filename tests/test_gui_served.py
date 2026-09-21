@@ -51,23 +51,71 @@ class PlainAddress(unittest.TestCase):
         self.assertFalse(gui.is_local_visit('127.0.0.1:8196', desktop))
 
 
-class WorkFiles(unittest.TestCase):
-    def test_lists_sources_and_leaves_out_what_prism_already_wrote(self):
-        with tempfile.TemporaryDirectory() as d:
-            for name in ('benchy.3mf', 'Vase.3MF', 'benchy - U1.3mf',
-                         'benchy - VORON24-300.3mf', 'notes.txt'):
-                open(os.path.join(d, name), 'w').close()
-            got = [os.path.basename(p) for p in gui.work_files(d, ['U1', 'VORON24-300'])]
-        self.assertEqual(got, ['Vase.3MF', 'benchy.3mf'])
+class Browse(unittest.TestCase):
+    """The served window's stand-in for a file dialog."""
 
-    def test_a_name_that_only_looks_like_an_output_is_kept(self):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self.tmp.name, 'root')
+        os.makedirs(os.path.join(self.root, 'models', 'vases'))
+        os.makedirs(os.path.join(self.root, '.hidden'))
+        for rel in ('top.3mf', 'models/benchy.3mf', 'models/Lid.3MF',
+                    'models/benchy - U1.3mf', 'models/readme.txt'):
+            open(os.path.join(self.root, rel), 'w').close()
+        open(os.path.join(self.tmp.name, 'outside.3mf'), 'w').close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_the_root_lists_folders_then_source_files_and_has_no_way_up(self):
+        got = gui.browse(self.root, '', ['U1'])
+        self.assertEqual((got['path'], got['parent']), ('', None))
+        self.assertEqual(got['dirs'], ['models'])
+        self.assertEqual([f['name'] for f in got['files']], ['top.3mf'])
+
+    def test_a_folder_lists_its_own_and_points_back_up(self):
+        got = gui.browse(self.root, 'models', ['U1'])
+        self.assertEqual((got['path'], got['parent']), ('models', ''))
+        self.assertEqual(got['dirs'], ['vases'])
+        # sorted the way a person reads a folder, not by ASCII
+        self.assertEqual([f['name'] for f in got['files']], ['benchy.3mf', 'Lid.3MF'])
+        self.assertEqual(got['files'][0]['path'],
+                         os.path.join(os.path.realpath(self.root), 'models', 'benchy.3mf'))
+
+    def test_every_way_out_of_the_root_lands_back_at_the_root(self):
+        os.symlink(self.tmp.name, os.path.join(self.root, 'models', 'escape'))
+        for bad in ('..', '../..', 'models/../..', '/etc', '/', 'models/escape',
+                    'models/escape/..', 'nope/nothing'):
+            got = gui.browse(self.root, bad, ['U1'])
+            self.assertEqual(got['path'], '', bad)
+            self.assertNotIn('outside.3mf', [f['name'] for f in got['files']], bad)
+
+    def test_a_link_that_leaves_the_root_is_not_offered_as_a_folder(self):
+        os.symlink(self.tmp.name, os.path.join(self.root, 'escape'))
+        self.assertEqual(gui.browse(self.root, '', ['U1'])['dirs'], ['models'])
+
+    def test_only_paths_inside_the_root_may_be_converted(self):
+        inside = os.path.join(self.root, 'models', 'benchy.3mf')
+        outside = os.path.join(self.tmp.name, 'outside.3mf')
+        sneaky = os.path.join(self.root, 'models', '..', '..', 'outside.3mf')
+        self.assertEqual(
+            gui.inside_root(self.root, [inside, outside, sneaky, '/etc/passwd']),
+            [inside])
+
+
+class OwnOutputs(unittest.TestCase):
+    def test_what_prism_wrote_is_left_out_and_lookalikes_are_kept(self):
         with tempfile.TemporaryDirectory() as d:
-            open(os.path.join(d, 'lid - final.3mf'), 'w').close()
-            got = [os.path.basename(p) for p in gui.work_files(d, ['U1'])]
-        self.assertEqual(got, ['lid - final.3mf'])
+            for name in ('benchy.3mf', 'benchy - U1.3mf', 'benchy - U1-FS.3mf',
+                         'benchy - VORON24-300.3mf', 'lid - final.3mf'):
+                open(os.path.join(d, name), 'w').close()
+            got = gui.browse(d, '', ['U1', 'VORON24-300'])
+        self.assertEqual([f['name'] for f in got['files']],
+                         ['benchy.3mf', 'lid - final.3mf'])
 
     def test_a_missing_folder_is_empty_not_an_error(self):
-        self.assertEqual(gui.work_files('/nonexistent/prism-work', ['U1']), [])
+        got = gui.browse('/nonexistent/prism-work', '', ['U1'])
+        self.assertEqual((got['dirs'], got['files']), ([], []))
 
 
 class LiveHandler(unittest.TestCase):

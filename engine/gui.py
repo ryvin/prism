@@ -85,18 +85,54 @@ def is_local_visit(host_header, cfg):
     return (host_header or '').strip().lower() in allowed
 
 
-def work_files(folder, keys):
-    """Every source .3mf in the served folder. What Prism wrote there earlier,
-    '<name> - KEY.3mf' or '<name> - KEY-FS.3mf', is left out so a second run
-    does not convert its own output."""
-    written = re.compile(r' - (%s)(-FS)?\.3mf$'
-                         % '|'.join(re.escape(k.upper()) for k in keys))
+def _within(root, path):
+    """The real path if it is the root or under it, else None. Resolved first,
+    so neither '..' nor a link pointing elsewhere gets out."""
+    real_root, real = os.path.realpath(root), os.path.realpath(path)
+    if real == real_root or real.startswith(real_root + os.sep):
+        return real
+    return None
+
+
+def inside_root(root, paths):
+    """Served, the page names files by path, so only what is under the shared
+    folder is ever handed to the engine."""
+    return [p for p in paths if _within(root, p) and os.path.isfile(p)]
+
+
+def _written_by_prism(keys):
+    return re.compile(r' - (%s)(-FS)?\.3mf$'
+                      % '|'.join(re.escape(k.upper()) for k in keys))
+
+
+def browse(root, rel, keys):
+    """One folder of the shared tree, for the page to draw in place of a file
+    dialog. Paths are relative to the root so the page never learns or sends
+    anything above it, and whatever does not resolve inside lands on the root
+    rather than erroring: a stale bookmark should open somewhere."""
+    real_root = os.path.realpath(root)
+    here = _within(root, os.path.join(real_root, str(rel or '').lstrip('/')))
+    if not here or not os.path.isdir(here):
+        here = real_root
+    written = _written_by_prism(keys)
+    dirs, files = [], []
     try:
-        names = sorted(os.listdir(folder))
+        names = sorted(os.listdir(here), key=str.lower)
     except OSError:
-        return []
-    return [os.path.join(folder, n) for n in names
-            if n.lower().endswith('.3mf') and not written.search(n)]
+        names = []
+    for n in names:
+        if n.startswith(('.', '$')):
+            continue                      # dotfolders, $RECYCLE.BIN and the like
+        full = os.path.join(here, n)
+        if os.path.isdir(full):
+            if _within(root, full):
+                dirs.append(n)
+        elif n.lower().endswith('.3mf') and not written.search(n):
+            files.append({'name': n, 'path': full})
+    path = os.path.relpath(here, real_root).replace(os.sep, '/')
+    path = '' if path == '.' else path
+    return {'path': path, 'dirs': dirs, 'files': files,
+            'parent': None if not path else path.rpartition('/')[0]}
 
 
 CONFIG = serve_config(os.environ)
@@ -104,8 +140,6 @@ CONFIG = serve_config(os.environ)
 
 def pick_files():
     """Native multi-select file dialog. Returns absolute paths."""
-    if CONFIG['served']:
-        return work_files(CONFIG['work'], [p['key'] for p in printers()])
     if sys.platform.startswith('linux'):
         for cmd in LINUX_PICKERS:
             if not shutil.which(cmd[0]):
@@ -175,6 +209,16 @@ def printers():
                      'label': re.sub(r'\s*\[.*\]\s*$', '', label).strip(),
                      'spectrum': spectrum, 'slicer': sl})
     return rows
+
+
+_keys = []
+
+
+def _printer_keys():
+    """Asked once: it costs an engine run and every folder opened wants it."""
+    if not _keys:
+        _keys.extend(p['key'] for p in printers())
+    return _keys
 
 
 def palette(key):
@@ -307,6 +351,15 @@ font-weight:600;padding:11px 22px}
 .primary:disabled{opacity:.4;cursor:default}
 select{font:inherit;padding:9px 11px;border-radius:9px;border:1px solid var(--line);
 background:var(--card);color:var(--ink);width:100%}
+.browse{margin-top:12px;border:1px solid var(--line);border-radius:11px;padding:12px}
+.crumbs{font-size:13px;color:var(--dim);margin-bottom:8px;word-break:break-all}
+.crumbs a{color:var(--accent);cursor:pointer;text-decoration:none}
+.crumbs a:hover{text-decoration:underline}
+.blist{max-height:300px;overflow:auto;font-size:14px}
+.blist .it{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;cursor:pointer;word-break:break-all}
+.blist .it:hover{background:var(--bg)}
+.blist .it.dir{font-weight:600}
+.blist .none{color:var(--dim);font-size:13px;padding:6px 8px}
 .files{margin-top:11px;font-size:13px;color:var(--dim)}
 .files div{padding:3px 0;word-break:break-all}
 .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
@@ -370,6 +423,12 @@ border-radius:50%;animation:s .7s linear infinite;display:inline-block;vertical-
 <div class="card" id="c1"><div class="step"><div class="num">1</div><h2>Choose files</h2></div>
 <div class="row"><button id="pick">Choose 3MF files…</button>
 <span class="hint" id="filehint" style="margin:0">Nothing chosen yet</span></div>
+<div class="browse" id="browse" hidden>
+<div class="crumbs" id="crumbs"></div>
+<div class="blist" id="blist"></div>
+<div class="row" style="margin-top:10px"><button class="primary" id="buse" disabled>Use selected</button>
+<button id="ball">Select all here</button><button id="bclose">Cancel</button>
+<span class="hint" id="bhint" style="margin:0"></span></div></div>
 <div class="files" id="files"></div></div>
 
 <div class="card off" id="c2"><div class="step"><div class="num">2</div><h2>Printer</h2></div>
@@ -502,7 +561,42 @@ function probe(){api('/api/probe',{files:S.files}).then(r=>{
   ?`This file carries ${r.colours} colours. Mapping matches each to the nearest blend, or pick one colour for the whole model.`
   :'This file is a single colour, so there is nothing to map. Pick the colour to print it in.';});}
 
+// Served from a container there is no native dialog, so the folders are drawn
+// here. Names are set as text, never as markup: a folder can be called anything.
+const B={sel:new Map()};
+const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;
+ if(text!=null)e.textContent=text;return e;};
+function useFiles(files){S.files=files;
+ document.getElementById('filehint').textContent=files.length+' file'+(files.length>1?'s':'');
+ const box=document.getElementById('files');box.replaceChildren(
+  ...files.map(f=>el('div','',f.split('/').pop().split('\\').pop())));
+ document.getElementById('c2').classList.remove('off');refresh();analyse();if(S.spectrum)probe();}
+function bcount(){document.getElementById('buse').disabled=!B.sel.size;
+ document.getElementById('bhint').textContent=B.sel.size?B.sel.size+' selected':'';}
+function drawBrowse(b){B.here=b;document.getElementById('browse').hidden=false;
+ const crumbs=document.getElementById('crumbs');crumbs.replaceChildren();
+ const parts=b.path?b.path.split('/'):[];
+ const link=(label,path)=>{const a=el('a','',label);a.onclick=()=>openFolder(path);return a;};
+ crumbs.append(link('Shared folder',''));
+ parts.forEach((p,i)=>{crumbs.append(' / ');crumbs.append(link(p,parts.slice(0,i+1).join('/')));});
+ const list=document.getElementById('blist');list.replaceChildren();
+ if(b.parent!==null){const up=el('div','it dir','↑ Up');up.onclick=()=>openFolder(b.parent);list.append(up);}
+ b.dirs.forEach(d=>{const row=el('div','it dir',d+'/');
+  row.onclick=()=>openFolder(b.path?b.path+'/'+d:d);list.append(row);});
+ b.files.forEach(f=>{const row=el('label','it');const cb=el('input');cb.type='checkbox';
+  cb.checked=B.sel.has(f.path);
+  cb.onchange=()=>{cb.checked?B.sel.set(f.path,1):B.sel.delete(f.path);bcount();};
+  row.append(cb,el('span','',f.name));list.append(row);});
+ if(!b.dirs.length&&!b.files.length)list.append(el('div','none','No folders or .3mf files here.'));
+ document.getElementById('ball').hidden=!b.files.length;bcount();}
+function openFolder(path){api('/api/browse',{path:path}).then(r=>drawBrowse(r.browse));}
+document.getElementById('buse').onclick=()=>{document.getElementById('browse').hidden=true;
+ useFiles([...B.sel.keys()]);};
+document.getElementById('ball').onclick=()=>{B.here.files.forEach(f=>B.sel.set(f.path,1));drawBrowse(B.here);};
+document.getElementById('bclose').onclick=()=>{document.getElementById('browse').hidden=true;};
+
 document.getElementById('pick').onclick=()=>api('/api/pick',{}).then(r=>{
+ if(r.browse){B.sel.clear();drawBrowse(r.browse);return;}
  if(r.note){document.getElementById('filehint').textContent=r.note;return;}
  if(!r.files.length)return; S.files=r.files;
  document.getElementById('filehint').textContent=r.files.length+' file'+(r.files.length>1?'s':'');
@@ -609,15 +703,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception:
             body = {}
         files = [f for f in (body.get('files') or []) if os.path.exists(f)]
+        if CONFIG['served']:
+            files = inside_root(CONFIG['work'], files)
         try:
-            if path == '/api/pick':
+            if path in ('/api/pick', '/api/browse') and CONFIG['served']:
+                # no desktop to put a dialog on, so the page draws the folders
+                self._send(json.dumps({'browse': browse(
+                    CONFIG['work'], body.get('path', ''), _printer_keys())}))
+            elif path == '/api/pick':
                 picked = pick_files()
                 note = ''
-                if not picked and CONFIG['served']:
-                    note = ('No .3mf files in the shared folder. Put them in '
-                            'the folder mounted at %s and choose again.'
-                            % CONFIG['work'])
-                elif not picked and sys.platform.startswith('linux') and \
+                if not picked and sys.platform.startswith('linux') and \
                         not any(shutil.which(c[0]) for c in LINUX_PICKERS):
                     note = ('No file dialog found. Install zenity, kdialog or '
                             'yad, or pass files on the command line.')
