@@ -81,6 +81,20 @@ def serve_config(env):
             'work': env.get('PRISM_WORK', '/work')}
 
 
+def is_local_visit(host_header, cfg):
+    """Whether a request with no token may be sent on to the address that has
+    one. Served, the port is fixed and a person types it bare, so that has to
+    open. The Host header is what keeps it safe: a page rebinding its own name
+    to 127.0.0.1 still arrives under that name, and another site's fetch cannot
+    read where a redirect went. The desktop window opens its own tokenised
+    address and never needs this."""
+    if not cfg['served']:
+        return False
+    allowed = {'%s:%d' % (name, cfg['public_port'])
+               for name in ('127.0.0.1', 'localhost', '[::1]')}
+    return (host_header or '').strip().lower() in allowed
+
+
 def work_files(folder, keys):
     """Every source .3mf in the served folder. What Prism wrote there earlier,
     '<name> - KEY.3mf' or '<name> - KEY-FS.3mf', is left out so a second run
@@ -757,6 +771,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         _last_seen[0] = time.time()
         _leaving[0] = 0.0
         path = self.path.split('?')[0]
+        if path == '/' and '?' not in self.path and \
+                is_local_visit(self.headers.get('Host'), CONFIG):
+            self.send_response(302)
+            self.send_header('Location', '/?t=' + TOKEN)
+            self.send_header('Cache-Control', 'no-store')
+            # HTTP/1.1 keeps the connection open, so without a length the
+            # browser waits for a body that is never coming
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        if path == '/favicon.ico':
+            # browsers ask for it without the token; a 403 in the console
+            # reads like something is broken
+            self.send_response(204)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if not self._auth():
             self.send_error(403)
             return

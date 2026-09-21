@@ -311,15 +311,16 @@ own: `python3 engine/optimise3mf.py --interactive yourfile.3mf`.
 
     mkdir -p work                    # yours, before Docker makes it root's
     docker compose up -d --build
-    docker compose logs prism        # prints the address, token included
 
-Put `.3mf` files in `./work`, open the address, and **Choose files** lists
+Put `.3mf` files in `./work`, open <http://127.0.0.1:8196/>, and **Choose files** lists
 what is in that folder instead of opening a dialog, since a container has no
 desktop to show one on. Converted files land back in `./work`, and anything
 Prism wrote there earlier is left out of the list.
 
 The window is published on `127.0.0.1:8196` only, because it can read and write
-the shared folder. Everything is set through `.env`:
+the shared folder. The plain address sends you on to one carrying the access
+token, and only when it was asked for as `127.0.0.1` or `localhost`, so another
+site cannot borrow it. Everything is set through `.env`:
 
 | Variable | Default | What it does |
 |---|---|---|
