@@ -9,3 +9,7 @@ out_v2/
 macos/.venv/
 macos/dist/
 macos/spec/
+
+# files shared with the container
+work/
+.env

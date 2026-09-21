@@ -1,0 +1,2 @@
+# a CRLF shell script does not run inside a container
+*.sh text eol=lf
