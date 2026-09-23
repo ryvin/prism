@@ -241,6 +241,10 @@ class LiveHandler(unittest.TestCase):
         self.assertEqual(r.getheader('Location'), '/?t=' + gui.TOKEN)
         self.assertEqual(self.get(r.getheader('Location')).status, 200)
 
+    def test_the_page_never_hands_its_address_to_another_site(self):
+        r = self.get('/?t=' + gui.TOKEN)
+        self.assertEqual(r.getheader('Referrer-Policy'), 'no-referrer')
+
     def test_another_name_in_the_host_header_gets_no_token(self):
         r = self.get('/', host='evil.example:%d' % self.port)
         self.assertEqual(r.status, 403)

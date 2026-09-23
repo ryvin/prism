@@ -571,7 +571,7 @@ Prism's.</p>
 <span class="hint" id="gohint" style="margin-left:11px"></span>
 <div class="out" id="out" style="margin-top:14px"></div></div>
 <p class="foot" __SUPPORT__>Prism is free and open source.
-<a href="__URL__" target="_blank" rel="noopener">Buy me a coffee</a> if it saved you a reprint.</p>
+<a href="__URL__" target="_blank" rel="noopener noreferrer">Buy me a coffee</a> if it saved you a reprint.</p>
 </div><script>
 const T=new URLSearchParams(location.search).get('t');
 const api=(p,b)=>fetch(p+'?t='+T,{method:b?'POST':'GET',headers:{'Content-Type':'application/json'},
@@ -817,6 +817,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(body)))
+        # the token is in the address, and a link followed from the page would
+        # otherwise carry that address to the other site as its Referer
+        self.send_header('Referrer-Policy', 'no-referrer')
         self.end_headers()
         self.wfile.write(body)
 
