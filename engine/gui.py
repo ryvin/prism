@@ -61,14 +61,48 @@ LINUX_PICKERS = [
 ]
 
 
+DEFAULT_PORT = 8196
+# Read only once served. A leftover PRISM_HOST=0.0.0.0 honoured on a desktop
+# would put the app on every interface with nothing but the token in the way.
+SERVED_ONLY = ('PRISM_PORT', 'PRISM_PUBLIC_PORT', 'PRISM_HOST', 'PRISM_WORK')
+
+
+def work_root(raw):
+    """The one folder the served window may list, read and hand the engine.
+    Resolved once here, so a link as the root still names a real place. It
+    has to be a real folder, and it cannot be the top of a filesystem: with
+    '/' as the root the inside check would have nothing to refuse."""
+    if not os.path.isabs(raw):
+        sys.exit('PRISM_WORK must be an absolute path, not %r' % raw)
+    real = os.path.realpath(raw)
+    if not os.path.isdir(real):
+        sys.exit('PRISM_WORK is not a folder: %r' % raw)
+    if os.path.dirname(real) == real:
+        sys.exit('PRISM_WORK cannot be the whole filesystem (%r). '
+                 'Share the folder your models are in.' % raw)
+    return real
+
+
 def serve_config(env):
-    """Where to listen. A desktop gets loopback on a free port. PRISM_PORT means
-    the window is being served, from a container say: a fixed port, no browser
-    to open, no native dialog to show, and nobody to go idle on."""
-    raw = env.get('PRISM_PORT', '')
-    if not raw:
+    """Where to listen. A desktop gets loopback on a free port and opens its
+    own browser. PRISM_SERVE=1 means the window is being served, from a
+    container say: a fixed port, no browser to open, no native dialog to show,
+    and nobody to go idle on. That one switch is the only way in. A port in
+    the environment used to be enough, so one found without the switch is
+    named on stderr rather than quietly doing nothing."""
+    switch = env.get('PRISM_SERVE', '')
+    if switch not in ('', '0', '1'):
+        sys.exit('PRISM_SERVE must be 1 to serve the window, or unset for '
+                 'the desktop app, not %r' % switch)
+    if switch != '1':
+        seen = [n for n in SERVED_ONLY if env.get(n)]
+        if seen:
+            print('%s ignored: served mode is switched on by PRISM_SERVE=1'
+                  % ', '.join(seen), file=sys.stderr)
         return {'host': '127.0.0.1', 'port': 0, 'public_port': 0,
                 'served': False, 'work': ''}
+    # 'or' rather than a .get default, so compose's empty ${X:-} counts as unset
+    raw = env.get('PRISM_PORT') or str(DEFAULT_PORT)
     # the port published on the host can differ from the one listened on, and
     # the address printed at start has to be the one that actually opens
     public = env.get('PRISM_PUBLIC_PORT') or raw
@@ -76,9 +110,9 @@ def serve_config(env):
         if not value.isdigit() or not 0 < int(value) < 65536:
             sys.exit('%s must be a port number from 1 to 65535, not %r'
                      % (name, value))
-    return {'host': env.get('PRISM_HOST', '127.0.0.1'), 'port': int(raw),
+    return {'host': env.get('PRISM_HOST') or '127.0.0.1', 'port': int(raw),
             'public_port': int(public), 'served': True,
-            'work': env.get('PRISM_WORK', '/work')}
+            'work': work_root(env.get('PRISM_WORK') or '/work')}
 
 
 def is_local_visit(host_header, cfg):
@@ -93,6 +127,21 @@ def is_local_visit(host_header, cfg):
     allowed = {'%s:%d' % (name, cfg['public_port'])
                for name in ('127.0.0.1', 'localhost', '[::1]')}
     return (host_header or '').strip().lower() in allowed
+
+
+def _within(root, path):
+    """The real path if it is the root or under it, else None. Resolved first,
+    so neither '..' nor a link pointing elsewhere gets out."""
+    real_root, real = os.path.realpath(root), os.path.realpath(path)
+    if real == real_root or real.startswith(real_root + os.sep):
+        return real
+    return None
+
+
+def inside_root(root, paths):
+    """Served, the page names files by path, so only what is under the shared
+    folder is ever handed to the engine."""
+    return [p for p in paths if _within(root, p) and os.path.isfile(p)]
 
 
 def work_files(folder, keys):
@@ -736,7 +785,7 @@ document.getElementById('go').onclick=()=>{const g=document.getElementById('go')
    :'<span class="bad">Something went wrong.</span>';
   o.appendChild(h);
   const p=document.createElement('pre');p.style.marginTop='9px';p.textContent=r.text.trim();o.appendChild(p);
-  if(r.outputs&&r.outputs.length){const b=document.createElement('button');
+  if(r.reveal&&r.outputs&&r.outputs.length){const b=document.createElement('button');
    b.textContent=r.reveal_label;b.style.marginTop='11px';
    b.onclick=()=>api('/api/reveal',{path:r.outputs[0]});o.appendChild(b);}
   g.disabled=false;});};
@@ -821,6 +870,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception:
             body = {}
         files = [f for f in (body.get('files') or []) if os.path.exists(f)]
+        if CONFIG['served']:
+            files = inside_root(CONFIG['work'], files)
         try:
             if path == '/api/pick':
                 picked = pick_files()
@@ -873,6 +924,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 rc, out, err = engine(['--printer', body.get('printer', ''),
                                        '--colour-preview'] + files)
                 self._send(json.dumps({'text': out or err}))
+            elif path == '/api/reveal' and CONFIG['served']:
+                # a page-supplied path handed to xdg-open, with no desktop to
+                # show it on: the one path-taking call the files filter misses
+                self.send_error(403)
             elif path == '/api/reveal':
                 reveal(body.get('path', ''))
                 self._send(json.dumps({'ok': True}))
@@ -908,6 +963,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(json.dumps({'ok': rc == 0, 'text': out + err,
                                        'outputs': outs,
                                        'mac': sys.platform == 'darwin',
+                                       'reveal': not CONFIG['served'],
                                        'reveal_label': (
                                            'Show in Finder'
                                            if sys.platform == 'darwin' else

@@ -6,7 +6,10 @@ RUN useradd --create-home --uid 1000 prism
 WORKDIR /app
 COPY engine/ /app/engine/
 
+# PRISM_SERVE=1 is the switch; the rest is read only once it is on. 0.0.0.0
+# because a port Docker publishes cannot reach the container's own loopback.
 ENV PYTHONUNBUFFERED=1 \
+    PRISM_SERVE=1 \
     PRISM_HOST=0.0.0.0 \
     PRISM_PORT=8196 \
     PRISM_WORK=/work

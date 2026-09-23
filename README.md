@@ -320,7 +320,14 @@ Prism wrote there earlier is left out of the list.
 The window is published on `127.0.0.1:8196` only, because it can read and write
 the shared folder. The plain address sends you on to one carrying the access
 token, and only when it was asked for as `127.0.0.1` or `localhost`, so another
-site cannot borrow it. Everything is set through `.env`:
+site cannot borrow it. If you run the image by hand instead of through compose,
+publish it as `-p 127.0.0.1:8196:8196`: a bare `docker run -p 8196:8196` puts the
+window on every interface of your machine, where anyone on the network with the
+token can read and write the shared folder.
+
+The image turns served mode on with `PRISM_SERVE=1`. Nothing else does: a port,
+host or work folder set without it is ignored and named at start, so the desktop
+app never changes how it listens by accident. Everything is set through `.env`:
 
 | Variable | Default | What it does |
 |---|---|---|
