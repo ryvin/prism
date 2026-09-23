@@ -13,3 +13,4 @@ macos/spec/
 # files shared with the container
 work/
 .env
+docker-compose.override.yml
