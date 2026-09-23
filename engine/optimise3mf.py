@@ -64,9 +64,14 @@ def load_index():
         return json.load(f)
 
 
+# Every baked key is letters, digits, '-' and '_'. Anything else would be
+# joined into a path, so '../index' opened a file outside the printer data.
+PRINTER_KEY = re.compile(r'[A-Za-z0-9_-]+')
+
+
 def load_printer(key):
     p = os.path.join(DATA, 'printers', key + '.json')
-    if not os.path.exists(p):
+    if not PRINTER_KEY.fullmatch(key) or not os.path.exists(p):
         sys.exit(f"unknown printer '{key}'. Run with --list to see keys")
     with open(p, encoding='utf-8') as f:
         return json.load(f)

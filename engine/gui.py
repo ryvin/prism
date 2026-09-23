@@ -347,13 +347,17 @@ QUICK = [
 ]
 
 
+# the engine's own rule: a key is joined into a path, so it may not climb out
+PRINTER_KEY = re.compile(r'[A-Za-z0-9_-]+')
+
+
 def settings_for(key):
     """What this printer ships, what Prism changes, and what each may be set to.
 
     Read straight from the baked profile rather than parsed out of CLI output,
     so the controls can never drift from what the engine will accept."""
     path = os.path.join(HERE, 'data', 'printers', key + '.json')
-    if not os.path.exists(path):
+    if not PRINTER_KEY.fullmatch(key) or not os.path.exists(path):
         return {'rows': []}
     with open(path, encoding='utf-8') as fh:
         d = json.load(fh)
